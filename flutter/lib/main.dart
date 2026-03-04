@@ -38,13 +38,21 @@ class TempWalApp extends StatelessWidget {
                     primary: Color(0xFFFACC15),
                     secondary: Color(0xFF38BDF8),
                     surface: Color(0xFF0B0B0F),
+                    onSurface: Colors.white,
                   )
                 : const ColorScheme.light(
-                    primary: Color(0xFF7C3AED),
-                    secondary: Color(0xFF2563EB),
-                    surface: Color(0xFFFFFFFF),
+                    primary: Color(0xFF6366F1), // Professional Indigo
+                    secondary: Color(0xFF4F46E5),
+                    surface: Color(0xFFF8FAFC),
+                    onSurface: Color(0xFF0F172A),
                   ),
+            scaffoldBackgroundColor: state.isDarkMode ? const Color(0xFF050506) : const Color(0xFFF1F5F9),
             fontFamily: 'SF Pro',
+            cardTheme: CardThemeData(
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              color: state.isDarkMode ? const Color(0xFF111827) : Colors.white,
+            ),
           );
 
           return MaterialApp(
@@ -75,42 +83,20 @@ class TempWalShell extends StatelessWidget {
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        color: state.isDarkMode ? Colors.black : const Color(0xFF1F173B),
+        color: state.isDarkMode ? Colors.black : const Color(0xFFF1F5F9),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: state.isDarkMode ? const Color(0xFF0F0F12) : Colors.white,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(32),
-                  topRight: Radius.circular(32),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 32,
-                    offset: const Offset(0, 12),
-                  ),
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              body: Column(
+                children: [
+                  HeaderBar(state: state),
+                  Expanded(child: _buildCurrentScreen(state)),
+                  if (state.currentView == 'dashboard')
+                    FloatingScannerButton(state: state),
+                  BottomNavBar(state: state),
                 ],
-              ),
-              child: ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(32),
-                  topRight: Radius.circular(32),
-                ),
-                child: Scaffold(
-                  backgroundColor: state.isDarkMode ? const Color(0xFF050506) : null,
-                  body: Column(
-                    children: [
-                      HeaderBar(state: state),
-                      Expanded(child: _buildCurrentScreen(state)),
-                      if (state.currentView == 'dashboard')
-                        FloatingScannerButton(state: state),
-                      BottomNavBar(state: state),
-                    ],
-                  ),
-                ),
               ),
             ),
           ),
@@ -159,33 +145,59 @@ class HeaderBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = state.isDarkMode;
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
+      padding: const EdgeInsets.fromLTRB(24, 56, 24, 24),
       decoration: BoxDecoration(
-        color: state.isDarkMode ? const Color(0xFF111113) : null,
-        gradient: state.isDarkMode ? null : const LinearGradient(
-          colors: [Color(0xFF7C3AED), Color(0xFF2563EB)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: isDark ? const Color(0xFF0F0F12) : Colors.white,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(32),
+          bottomRight: Radius.circular(32),
         ),
-        border: state.isDarkMode ? const Border(bottom: BorderSide(color: Color(0xFF27272A))) : null,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            'TempWal',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: state.isDarkMode ? const Color(0xFFFACC15) : Colors.white,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'TempWal',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.5,
+                  color: isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1),
+                ),
+              ),
+              const Text(
+                'the only wallet you need',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
           ),
-          IconButton(
-            onPressed: () => state.setView('settings'),
-            icon: Icon(
-              Icons.settings_outlined,
-              color: state.isDarkMode ? const Color(0xFFFACC15) : Colors.white,
+          Container(
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFF1F5F9),
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              onPressed: () => state.setView('settings'),
+              icon: Icon(
+                Icons.settings_rounded,
+                color: isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1),
+              ),
             ),
           ),
         ],
@@ -200,43 +212,33 @@ class FloatingScannerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 64,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            top: -32,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: SizedBox(
-                width: 72,
-                height: 72,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: state.isDarkMode ? const Color(0xFFFACC15) : null,
-                    gradient: state.isDarkMode ? null : const LinearGradient(
-                      colors: [Color(0xFF7C3AED), Color(0xFF2563EB)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 16, offset: Offset(0, 6))],
-                  ),
-                  child: IconButton(
-                    onPressed: () => state.setView('scanner'),
-                    icon: Icon(
-                      Icons.qr_code_scanner,
-                      color: state.isDarkMode ? Colors.black : Colors.white,
-                      size: 32,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+    final bool isDark = state.isDarkMode;
+    return Container(
+      height: 80,
+      width: 80,
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1),
+        boxShadow: [
+          BoxShadow(
+            color: (isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1)).withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
         ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => state.setView('scanner'),
+          customBorder: const CircleBorder(),
+          child: Icon(
+            Icons.qr_code_scanner_rounded,
+            color: isDark ? Colors.black : Colors.white,
+            size: 36,
+          ),
+        ),
       ),
     );
   }
@@ -248,36 +250,43 @@ class BottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = state.isDarkMode;
     return Container(
       decoration: BoxDecoration(
-        color: state.isDarkMode ? const Color(0xFF111113) : Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.withOpacity(0.2))),
+        color: isDark ? const Color(0xFF0F0F12) : Colors.white,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(32),
+          topRight: Radius.circular(32),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+            blurRadius: 20,
+            offset: const Offset(0, -10),
+          ),
+        ],
       ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          Expanded(
-            child: _BottomNavItem(
-              label: 'Home',
-              icon: Icons.home_outlined,
-              view: 'dashboard',
-              state: state,
-            ),
+          _BottomNavItem(
+            label: 'Home',
+            icon: Icons.home_rounded,
+            view: 'dashboard',
+            state: state,
           ),
-          Expanded(
-            child: _BottomNavItem(
-              label: 'Generate',
-              icon: Icons.add_circle_outline,
-              view: 'generate',
-              state: state,
-            ),
+          _BottomNavItem(
+            label: 'Generate',
+            icon: Icons.add_circle_rounded,
+            view: 'generate',
+            state: state,
           ),
-          Expanded(
-            child: _BottomNavItem(
-              label: 'History',
-              icon: Icons.history,
-              view: 'history',
-              state: state,
-            ),
+          _BottomNavItem(
+            label: 'History',
+            icon: Icons.history_rounded,
+            view: 'history',
+            state: state,
           ),
         ],
       ),
@@ -301,27 +310,25 @@ class _BottomNavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool active = state.currentView == view;
-    final Color activeColor = state.isDarkMode ? const Color(0xFFFACC15) : const Color(0xFF7C3AED);
-    final Color inactiveColor = state.isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF4B5563);
+    final isDark = state.isDarkMode;
+    final Color activeColor = isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1);
+    final Color inactiveColor = isDark ? Colors.grey[700]! : Colors.grey[400]!;
 
     return InkWell(
       onTap: () => state.setView(view),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: active ? BoxDecoration(
-          border: Border(top: BorderSide(color: activeColor, width: 3)),
-          color: activeColor.withOpacity(0.05),
-        ) : null,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: active ? activeColor : inactiveColor, size: 28),
+            Icon(icon, color: active ? activeColor : inactiveColor, size: 26),
             const SizedBox(height: 4),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: active ? FontWeight.bold : FontWeight.normal,
+                fontSize: 11,
+                fontWeight: active ? FontWeight.bold : FontWeight.w500,
                 color: active ? activeColor : inactiveColor,
               ),
             ),

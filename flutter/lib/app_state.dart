@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'models/models.dart';
 
 class AppState extends ChangeNotifier {
@@ -17,7 +20,8 @@ class AppState extends ChangeNotifier {
   User? get user => _user;
   bool get isAuthenticated => _user != null;
   String? userName;
-  String? userPin; // 4-digit PIN
+  String? userPin;
+  String? localProfilePath;
 
   double realAccountBalance = 5420.50;
   bool isDarkMode = false;
@@ -25,6 +29,7 @@ class AppState extends ChangeNotifier {
   
   final FlutterTts _flutterTts = FlutterTts();
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final ImagePicker _picker = ImagePicker();
 
   List<TempWallet> tempWallets = [
     TempWallet(
@@ -35,7 +40,7 @@ class AppState extends ChangeNotifier {
     ),
   ];
   ActiveQRData? activeQR;
-  String qrStatus = 'idle'; // pending, scanning, completed
+  String qrStatus = 'idle';
   
   final List<WalletTransaction> transactions = [];
   String currentView = 'dashboard';
@@ -68,6 +73,28 @@ class AppState extends ChangeNotifier {
       await _audioPlayer.play(AssetSource('sounds/payment_success.mp3'));
     } catch (e) {
       debugPrint('Error playing sound: $e');
+    }
+  }
+
+  // --- Profile Pic Logic ---
+  Future<void> updateProfilePicture() async {
+    if (_user == null) return;
+    
+    try {
+      final XFile? image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
+      if (image == null) return;
+
+      final directory = await getApplicationDocumentsDirectory();
+      final String path = directory.path;
+      final File localImage = await File(image.path).copy('$path/profile_${_user!.uid}.jpg');
+      
+      localProfilePath = localImage.path;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('localProfilePath_${_user!.uid}', localProfilePath!);
+      
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error updating profile pic: $e');
     }
   }
 
@@ -119,6 +146,7 @@ class AppState extends ChangeNotifier {
     _user = null;
     userName = null;
     userPin = null;
+    localProfilePath = null;
     notifyListeners();
   }
 
@@ -131,6 +159,10 @@ class AppState extends ChangeNotifier {
         userName = data['name'] ?? 'User';
         userPin = data['pin'];
       }
+      
+      final prefs = await SharedPreferences.getInstance();
+      localProfilePath = prefs.getString('localProfilePath_$uid');
+
       _saveToCache();
       notifyListeners();
     } catch (e) {
