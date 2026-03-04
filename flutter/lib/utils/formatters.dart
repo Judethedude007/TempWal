@@ -1,7 +1,7 @@
 import 'package:intl/intl.dart';
 
 final NumberFormat currencyFormat =
-    NumberFormat.currency(locale: 'en_US', symbol: r'$', decimalDigits: 2);
+    NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2);
 
 String formatCurrency(double value) {
   return currencyFormat.format(value);

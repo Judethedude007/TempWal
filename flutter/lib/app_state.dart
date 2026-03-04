@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'models/models.dart';
 
 class AppState extends ChangeNotifier {
@@ -18,6 +20,11 @@ class AppState extends ChangeNotifier {
 
   double realAccountBalance = 5420.50;
   bool isDarkMode = false;
+  bool isSoundEnabled = true;
+  
+  final FlutterTts _flutterTts = FlutterTts();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   List<TempWallet> tempWallets = [
     TempWallet(
       id: 'wallet-1',
@@ -34,6 +41,9 @@ class AppState extends ChangeNotifier {
   StreamSubscription? _authSubscription;
 
   Future<void> _init() async {
+    await _flutterTts.setLanguage("en-IN");
+    await _flutterTts.setPitch(1.0);
+    
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
       _user = user;
       if (user != null) {
@@ -42,6 +52,20 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
     await _loadFromCache();
+  }
+
+  Future<void> _speak(String text) async {
+    if (!isSoundEnabled) return;
+    await _flutterTts.speak(text);
+  }
+
+  Future<void> _playNotificationSound() async {
+    if (!isSoundEnabled) return;
+    try {
+      await _audioPlayer.play(AssetSource('sounds/payment_success.mp3'));
+    } catch (e) {
+      debugPrint('Error playing sound: $e');
+    }
   }
 
   // --- Auth Logic ---
@@ -99,6 +123,7 @@ class AppState extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       isDarkMode = prefs.getBool('isDarkMode') ?? false;
+      isSoundEnabled = prefs.getBool('isSoundEnabled') ?? true;
       
       final walletsJson = prefs.getString('tempWallets');
       if (walletsJson != null) {
@@ -128,6 +153,7 @@ class AppState extends ChangeNotifier {
   Future<void> _saveToCache() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isDarkMode', isDarkMode);
+    await prefs.setBool('isSoundEnabled', isSoundEnabled);
     await prefs.setString('tempWallets', jsonEncode(tempWallets.map((w) => w.toJson()).toList()));
     await prefs.setString('transactions', jsonEncode(transactions.map((t) => t.toJson()).toList()));
     if (activeQR != null) {
@@ -158,6 +184,10 @@ class AppState extends ChangeNotifier {
 
   void _processIncomingPayment(double amount, String senderName, String txnId) {
     if (activeQR == null) return;
+    
+    // Receiver Voice Announcement
+    _speak("Credited ${amount.toInt()} rupees from $senderName");
+
     transactions.insert(0, WalletTransaction(
       id: txnId, 
       type: TransactionType.received, 
@@ -186,6 +216,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void toggleSound() {
+    isSoundEnabled = !isSoundEnabled;
+    _saveToCache();
+    notifyListeners();
+  }
+
   void setView(String view) {
     currentView = view;
     notifyListeners();
@@ -209,7 +245,26 @@ class AppState extends ChangeNotifier {
   Future<void> generateQR(LimitType limitType, double value, String walletId) async {
     final wallet = tempWallets.firstWhere((w) => w.id == walletId);
     final qrId = 'QR-${DateTime.now().millisecondsSinceEpoch}';
-    activeQR = ActiveQRData(id: qrId, qrValue: qrId, limitType: limitType, timeLimit: limitType == LimitType.time ? (value * 60).round() : null, amountLimit: limitType == LimitType.amount ? value : null, createdAt: DateTime.now(), expiresAt: limitType == LimitType.time ? DateTime.now().add(Duration(minutes: value.round())) : null, currentAmount: 0, walletId: wallet.id, walletName: wallet.name);
+    
+    // Set expiry time for Time limit QRs
+    DateTime? expiresAt;
+    if (limitType == LimitType.time) {
+      expiresAt = DateTime.now().add(Duration(minutes: value.round()));
+    }
+
+    activeQR = ActiveQRData(
+      id: qrId, 
+      qrValue: qrId, 
+      limitType: limitType, 
+      timeLimit: limitType == LimitType.time ? (value * 60).round() : null, 
+      amountLimit: limitType == LimitType.amount ? value : null, 
+      createdAt: DateTime.now(), 
+      expiresAt: expiresAt,
+      currentAmount: 0, 
+      walletId: wallet.id, 
+      walletName: wallet.name
+    );
+
     try {
       await FirebaseFirestore.instance.collection('payments').doc(qrId).set({
         'id': qrId, 
@@ -220,10 +275,12 @@ class AppState extends ChangeNotifier {
         'status': 'pending', 
         'receiverId': _user?.uid,
         'receiverName': userName ?? 'User',
-        'createdAt': FieldValue.serverTimestamp()
+        'createdAt': FieldValue.serverTimestamp(),
+        'expiresAt': expiresAt?.toIso8601String(),
       });
       _listenToQR(qrId);
     } catch (e) { debugPrint('Firebase upload failed: $e'); }
+    
     selectedWalletId = walletId;
     currentView = 'active';
     _saveToCache();
@@ -235,6 +292,7 @@ class AppState extends ChangeNotifier {
     
     // Check local balance
     if (realAccountBalance < amount) {
+      _playNotificationSound(); // Or a failure sound if you have one
       transactions.insert(0, WalletTransaction(
         id: 'FAIL-${DateTime.now().millisecondsSinceEpoch}',
         type: TransactionType.sent,
@@ -259,7 +317,30 @@ class AppState extends ChangeNotifier {
       final doc = await docRef.get();
       String receiverName = 'Unknown';
       if (doc.exists) {
-        receiverName = doc.data()?['receiverName'] ?? 'User';
+        final data = doc.data();
+        receiverName = data?['receiverName'] ?? 'User';
+        
+        // Check if QR is expired
+        if (data?['expiresAt'] != null) {
+          final expiry = DateTime.parse(data!['expiresAt']);
+          if (DateTime.now().isAfter(expiry)) {
+             transactions.insert(0, WalletTransaction(
+              id: 'FAIL-${DateTime.now().millisecondsSinceEpoch}',
+              type: TransactionType.sent,
+              amount: amount,
+              timestamp: DateTime.now(),
+              status: TransactionStatus.failed,
+              walletId: 'EXTERNAL',
+              walletName: 'Payment to $receiverName',
+              failureReason: 'QR Code Expired',
+              otherPartyName: receiverName,
+            ));
+            _saveToCache();
+            notifyListeners();
+            return;
+          }
+        }
+
         await docRef.update({
           'status': 'completed', 
           'amount': amount, 
@@ -268,6 +349,9 @@ class AppState extends ChangeNotifier {
           'transactionId': 'TXN-${DateTime.now().millisecondsSinceEpoch}'
         });
       }
+
+      // Sender gets a simple "Tading" sound
+      _playNotificationSound();
 
       transactions.insert(0, WalletTransaction(
         id: 'TXN-${DateTime.now().millisecondsSinceEpoch}', 
@@ -302,6 +386,10 @@ class AppState extends ChangeNotifier {
       await FirebaseFirestore.instance.collection('users').doc(_user!.uid).update({'balance': realAccountBalance});
     }
     
+    if (auto) {
+      _speak("Limit reached. ${transferAmount.toInt()} rupees auto transferred to main account.");
+    }
+
     transactions.insert(0, WalletTransaction(
       id: 'TRF-${DateTime.now().millisecondsSinceEpoch}', 
       type: auto ? TransactionType.autoTransferred : TransactionType.transferred, 
@@ -356,6 +444,8 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _qrSubscription?.cancel();
     _authSubscription?.cancel();
+    _flutterTts.stop();
+    _audioPlayer.dispose();
     super.dispose();
   }
 }

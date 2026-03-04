@@ -10,6 +10,7 @@ import 'screens/manage_wallets_screen.dart';
 import 'screens/wallet_transactions_screen.dart';
 import 'screens/scanner_screen.dart';
 import 'screens/auth_screen.dart';
+import 'screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -144,6 +145,8 @@ class TempWalShell extends StatelessWidget {
             : WalletTransactionsScreen(state: state, wallet: activeWallet);
       case 'scanner':
         return ScannerScreen(state: state);
+      case 'settings':
+        return const SettingsScreen();
       default:
         return DashboardScreen(state: state);
     }
@@ -178,23 +181,12 @@ class HeaderBar extends StatelessWidget {
               color: state.isDarkMode ? const Color(0xFFFACC15) : Colors.white,
             ),
           ),
-          Row(
-            children: [
-              IconButton(
-                onPressed: state.toggleTheme,
-                icon: Icon(
-                  Icons.settings_outlined,
-                  color: state.isDarkMode ? const Color(0xFFFACC15) : Colors.white,
-                ),
-              ),
-              IconButton(
-                onPressed: state.signOut,
-                icon: Icon(
-                  Icons.logout,
-                  color: state.isDarkMode ? const Color(0xFFFACC15) : Colors.white,
-                ),
-              ),
-            ],
+          IconButton(
+            onPressed: () => state.setView('settings'),
+            icon: Icon(
+              Icons.settings_outlined,
+              color: state.isDarkMode ? const Color(0xFFFACC15) : Colors.white,
+            ),
           ),
         ],
       ),
