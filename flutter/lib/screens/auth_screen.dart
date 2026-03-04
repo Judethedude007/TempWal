@@ -12,6 +12,7 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _nameController = TextEditingController();
   bool _isLogin = true;
   bool _isLoading = false;
 
@@ -19,23 +20,37 @@ class _AuthScreenState extends State<AuthScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _nameController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+    final name = _nameController.text.trim();
+
+    if (email.isEmpty || password.isEmpty || (!_isLogin && name.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill all fields')),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
     final state = context.read<AppState>();
     
     try {
       if (_isLogin) {
-        await state.signIn(_emailController.text, _passwordController.text);
+        await state.signIn(email, password);
       } else {
-        await state.signUp(_emailController.text, _passwordController.text);
+        await state.signUp(email, password, name);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -75,8 +90,23 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
               ),
               const SizedBox(height: 32),
+              if (!_isLogin) ...[
+                TextField(
+                  controller: _nameController,
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  decoration: InputDecoration(
+                    labelText: 'Full Name',
+                    prefixIcon: const Icon(Icons.person_outline),
+                    filled: true,
+                    fillColor: isDark ? const Color(0xFF111827) : Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               TextField(
                 controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
                 style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Email',
@@ -115,7 +145,11 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () => setState(() => _isLogin = !_isLogin),
+                onPressed: () {
+                  setState(() {
+                    _isLogin = !_isLogin;
+                  });
+                },
                 child: Text(
                   _isLogin ? 'New here? Create an account' : 'Already have an account? Sign in',
                   style: TextStyle(color: isDark ? const Color(0xFFFACC15) : const Color(0xFF7C3AED)),

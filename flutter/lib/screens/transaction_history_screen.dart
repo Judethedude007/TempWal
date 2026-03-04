@@ -8,45 +8,12 @@ class TransactionHistoryScreen extends StatelessWidget {
 
   final AppState state;
 
-  Color _typeColor(TransactionType type, TransactionStatus status, bool isDark) {
-    if (status == TransactionStatus.failed) return Colors.red;
-    
-    switch (type) {
-      case TransactionType.received:
-        return const Color(0xFF10B981); // Green
-      case TransactionType.sent:
-        return const Color(0xFF2563EB); // Blue
-      case TransactionType.transferred:
-        return isDark ? const Color(0xFFFACC15) : const Color(0xFF7C3AED);
-      case TransactionType.autoTransferred:
-        return Colors.purple; // Distinct color for auto
-    }
-  }
-
-  IconData _iconForType(TransactionType type) {
-    switch (type) {
-      case TransactionType.received:
-        return Icons.add_circle_outline;
-      case TransactionType.sent:
-        return Icons.remove_circle_outline;
-      case TransactionType.transferred:
-        return Icons.account_balance_wallet_outlined;
-      case TransactionType.autoTransferred:
-        return Icons.auto_awesome_outlined;
-    }
-  }
-
-  String _titleForType(TransactionType type, String? otherParty) {
-    switch (type) {
-      case TransactionType.received:
-        return otherParty != null ? 'From $otherParty' : 'Payment Received';
-      case TransactionType.sent:
-        return otherParty != null ? 'To $otherParty' : 'Payment Sent';
-      case TransactionType.transferred:
-        return 'Transferred to Main';
-      case TransactionType.autoTransferred:
-        return 'Auto-Transferred';
-    }
+  void _showTransactionDetails(BuildContext context, WalletTransaction txn, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _TransactionDetailSheet(txn: txn, isDark: isDark),
+    );
   }
 
   @override
@@ -63,17 +30,14 @@ class TransactionHistoryScreen extends StatelessWidget {
             child: transactions.isEmpty
                 ? _EmptyState(isDark: isDark)
                 : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     itemCount: transactions.length,
                     itemBuilder: (context, index) {
                       final txn = transactions[index];
-                      final color = _typeColor(txn.type, txn.status, isDark);
-                      return _TransactionTile(
+                      return _EnhancedTransactionTile(
                         transaction: txn,
-                        icon: _iconForType(txn.type),
-                        color: color,
-                        title: _titleForType(txn.type, txn.otherPartyName),
                         isDark: isDark,
+                        onTap: () => _showTransactionDetails(context, txn, isDark),
                       );
                     },
                   ),
@@ -82,6 +46,191 @@ class TransactionHistoryScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _EnhancedTransactionTile extends StatelessWidget {
+  const _EnhancedTransactionTile({
+    required this.transaction,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  final WalletTransaction transaction;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isFailed = transaction.status == TransactionStatus.failed;
+    final bool isReceived = transaction.type == TransactionType.received;
+    final String amountPrefix = isReceived ? '+' : '-';
+    
+    String displayName = transaction.otherPartyName ?? transaction.walletName;
+    if (transaction.type == TransactionType.transferred || transaction.type == TransactionType.autoTransferred) {
+      displayName = "Main Account Transfer";
+    }
+
+    Color mainColor;
+    IconData typeIcon;
+
+    if (isFailed) {
+      mainColor = Colors.red;
+      typeIcon = Icons.error_outline;
+    } else {
+      switch (transaction.type) {
+        case TransactionType.received:
+          mainColor = const Color(0xFF10B981);
+          typeIcon = Icons.add_rounded;
+          break;
+        case TransactionType.sent:
+          mainColor = const Color(0xFF2563EB);
+          typeIcon = Icons.remove_rounded;
+          break;
+        case TransactionType.transferred:
+          mainColor = isDark ? const Color(0xFFFACC15) : const Color(0xFF7C3AED);
+          typeIcon = Icons.swap_horiz_rounded;
+          break;
+        case TransactionType.autoTransferred:
+          mainColor = Colors.purple;
+          typeIcon = Icons.auto_awesome_rounded;
+          break;
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: isDark ? const Color(0xFF111827) : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isFailed 
+                    ? Colors.red.withOpacity(0.3) 
+                    : (isDark ? const Color(0xFF1F2937) : const Color(0xFFE5E7EB)),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: mainColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(typeIcon, color: mainColor, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    displayName,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                      color: isFailed ? Colors.red : (isDark ? Colors.white : const Color(0xFF1F2937)),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  '$amountPrefix${formatCurrency(transaction.amount)}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 17,
+                    color: isFailed ? Colors.red : (isReceived ? const Color(0xFF10B981) : (isDark ? Colors.white : Colors.black87)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TransactionDetailSheet extends StatelessWidget {
+  const _TransactionDetailSheet({required this.txn, required this.isDark});
+  final WalletTransaction txn;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isFailed = txn.status == TransactionStatus.failed;
+    final Color accentColor = isFailed ? Colors.red : (isDark ? const Color(0xFFFACC15) : const Color(0xFF7C3AED));
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Transaction Details',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
+          ),
+          const SizedBox(height: 24),
+          _detailRow('Status', txn.status.name.toUpperCase(), isFailed ? Colors.red : Colors.green),
+          _divider(),
+          _detailRow('Type', txn.type.name.replaceAll('autoTransferred', 'Auto Transfer').toUpperCase(), null),
+          _divider(),
+          _detailRow('Wallet', txn.walletName, null),
+          _divider(),
+          _detailRow('Date', formatShortDate(txn.timestamp), null),
+          if (txn.otherPartyName != null) ...[
+            _divider(),
+            _detailRow('Counterparty', txn.otherPartyName!, null),
+          ],
+          if (isFailed && txn.failureReason != null) ...[
+            _divider(),
+            _detailRow('Failure Reason', txn.failureReason!, Colors.red),
+          ],
+          const SizedBox(height: 32),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accentColor,
+              foregroundColor: isDark ? Colors.black : Colors.white,
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+            child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value, Color? valueColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: valueColor ?? (isDark ? Colors.white : Colors.black87))),
+        ],
+      ),
+    );
+  }
+
+  Widget _divider() => Divider(color: Colors.grey.withOpacity(0.1));
 }
 
 class _HistoryHeader extends StatelessWidget {
@@ -104,115 +253,12 @@ class _HistoryHeader extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            'Transaction History',
+            'History',
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 24,
               fontWeight: FontWeight.bold,
               color: state.isDarkMode ? Colors.white : const Color(0xFF0F172A),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TransactionTile extends StatelessWidget {
-  const _TransactionTile({
-    required this.transaction,
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.isDark,
-  });
-
-  final WalletTransaction transaction;
-  final IconData icon;
-  final Color color;
-  final String title;
-  final bool isDark;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isFailed = transaction.status == TransactionStatus.failed;
-    final String amountPrefix = transaction.type == TransactionType.received ? '+' : '-';
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF111827) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDark ? const Color(0xFF1F2937) : const Color(0xFFE5E7EB),
-          width: isFailed ? 1.5 : 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${transaction.walletName} • ${formatShortDate(transaction.timestamp)}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.grey[400] : Colors.grey[600],
-                  ),
-                ),
-                if (isFailed && transaction.failureReason != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      transaction.failureReason!,
-                      style: const TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '$amountPrefix${formatCurrency(transaction.amount)}',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                  color: color,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                isFailed ? 'FAILED' : 'SUCCESS',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                  color: isFailed ? Colors.red : Colors.grey[500],
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -230,7 +276,7 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.history_toggle_off, size: 64, color: isDark ? const Color(0xFF374151) : const Color(0xFFCBD5E1)),
+          Icon(Icons.history_toggle_off, size: 80, color: isDark ? const Color(0xFF1F2937) : const Color(0xFFE2E8F0)),
           const SizedBox(height: 16),
           Text(
             'No transactions yet',

@@ -14,6 +14,7 @@ class AppState extends ChangeNotifier {
   User? _user;
   User? get user => _user;
   bool get isAuthenticated => _user != null;
+  String? userName;
 
   double realAccountBalance = 5420.50;
   bool isDarkMode = false;
@@ -45,9 +46,18 @@ class AppState extends ChangeNotifier {
 
   // --- Auth Logic ---
   
-  Future<void> signUp(String email, String password) async {
+  Future<void> signUp(String email, String password, String name) async {
     try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
+      final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
+      if (credential.user != null) {
+        userName = name;
+        await FirebaseFirestore.instance.collection('users').doc(credential.user!.uid).set({
+          'balance': 5000.0,
+          'email': email,
+          'name': name,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
     } catch (e) {
       rethrow;
     }
@@ -64,6 +74,7 @@ class AppState extends ChangeNotifier {
   Future<void> signOut() async {
     await FirebaseAuth.instance.signOut();
     _user = null;
+    userName = null;
     notifyListeners();
   }
 
@@ -73,13 +84,7 @@ class AppState extends ChangeNotifier {
       if (doc.exists) {
         final data = doc.data()!;
         realAccountBalance = (data['balance'] as num).toDouble();
-      } else {
-        realAccountBalance = 5000.0;
-        await FirebaseFirestore.instance.collection('users').doc(uid).set({
-          'balance': 5000.0,
-          'email': _user?.email,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+        userName = data['name'] ?? 'User';
       }
       _saveToCache();
       notifyListeners();
@@ -158,7 +163,7 @@ class AppState extends ChangeNotifier {
       type: TransactionType.received, 
       amount: amount, 
       timestamp: DateTime.now(), 
-      status: TransactionStatus.completed, // Received payments are instant
+      status: TransactionStatus.completed,
       walletId: activeQR!.walletId, 
       walletName: activeQR!.walletName,
       otherPartyName: senderName,
@@ -193,8 +198,9 @@ class AppState extends ChangeNotifier {
   }
 
   void deleteWallet(String walletId) {
-    final wallet = tempWallets.firstWhere((w) => w.id == walletId, orElse: () => tempWallets.first);
-    if (wallet.balance > 0) transferWalletToRealAccount(walletId);
+    final walletIndex = tempWallets.indexWhere((w) => w.id == walletId);
+    if (walletIndex == -1) return;
+    if (tempWallets[walletIndex].balance > 0) transferWalletToRealAccount(walletId);
     tempWallets = tempWallets.where((w) => w.id != walletId).toList();
     _saveToCache();
     notifyListeners();
@@ -213,7 +219,7 @@ class AppState extends ChangeNotifier {
         'amountLimit': activeQR!.amountLimit, 
         'status': 'pending', 
         'receiverId': _user?.uid,
-        'receiverName': _user?.email ?? 'TempWal User',
+        'receiverName': userName ?? 'User',
         'createdAt': FieldValue.serverTimestamp()
       });
       _listenToQR(qrId);
@@ -238,6 +244,7 @@ class AppState extends ChangeNotifier {
         walletId: 'EXTERNAL',
         walletName: 'External Payment',
         failureReason: 'Insufficient Balance',
+        otherPartyName: 'Receiver',
       ));
       _saveToCache();
       notifyListeners();
@@ -256,7 +263,7 @@ class AppState extends ChangeNotifier {
         await docRef.update({
           'status': 'completed', 
           'amount': amount, 
-          'senderName': _user?.email ?? 'TempWal User', 
+          'senderName': userName ?? 'TempWal User',
           'senderId': _user!.uid, 
           'transactionId': 'TXN-${DateTime.now().millisecondsSinceEpoch}'
         });
