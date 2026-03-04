@@ -17,6 +17,7 @@ class AppState extends ChangeNotifier {
   User? get user => _user;
   bool get isAuthenticated => _user != null;
   String? userName;
+  String? userPin; // 4-digit PIN
 
   double realAccountBalance = 5420.50;
   bool isDarkMode = false;
@@ -34,6 +35,8 @@ class AppState extends ChangeNotifier {
     ),
   ];
   ActiveQRData? activeQR;
+  String qrStatus = 'idle'; // pending, scanning, completed
+  
   final List<WalletTransaction> transactions = [];
   String currentView = 'dashboard';
   String? selectedWalletId;
@@ -59,13 +62,28 @@ class AppState extends ChangeNotifier {
     await _flutterTts.speak(text);
   }
 
-  Future<void> _playNotificationSound() async {
+  Future<void> _playTadingSound() async {
     if (!isSoundEnabled) return;
     try {
       await _audioPlayer.play(AssetSource('sounds/payment_success.mp3'));
     } catch (e) {
       debugPrint('Error playing sound: $e');
     }
+  }
+
+  // --- PIN Logic ---
+  Future<void> setPin(String pin) async {
+    userPin = pin;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('userPin', pin);
+    if (_user != null) {
+      await FirebaseFirestore.instance.collection('users').doc(_user!.uid).update({'pin': pin});
+    }
+    notifyListeners();
+  }
+
+  bool verifyPin(String pin) {
+    return userPin == pin;
   }
 
   // --- Auth Logic ---
@@ -79,6 +97,7 @@ class AppState extends ChangeNotifier {
           'balance': 5000.0,
           'email': email,
           'name': name,
+          'pin': null,
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
@@ -99,6 +118,7 @@ class AppState extends ChangeNotifier {
     await FirebaseAuth.instance.signOut();
     _user = null;
     userName = null;
+    userPin = null;
     notifyListeners();
   }
 
@@ -109,6 +129,7 @@ class AppState extends ChangeNotifier {
         final data = doc.data()!;
         realAccountBalance = (data['balance'] as num).toDouble();
         userName = data['name'] ?? 'User';
+        userPin = data['pin'];
       }
       _saveToCache();
       notifyListeners();
@@ -124,6 +145,7 @@ class AppState extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       isDarkMode = prefs.getBool('isDarkMode') ?? false;
       isSoundEnabled = prefs.getBool('isSoundEnabled') ?? true;
+      userPin = prefs.getString('userPin');
       
       final walletsJson = prefs.getString('tempWallets');
       if (walletsJson != null) {
@@ -154,6 +176,7 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isDarkMode', isDarkMode);
     await prefs.setBool('isSoundEnabled', isSoundEnabled);
+    if (userPin != null) await prefs.setString('userPin', userPin!);
     await prefs.setString('tempWallets', jsonEncode(tempWallets.map((w) => w.toJson()).toList()));
     await prefs.setString('transactions', jsonEncode(transactions.map((t) => t.toJson()).toList()));
     if (activeQR != null) {
@@ -170,13 +193,18 @@ class AppState extends ChangeNotifier {
     _qrSubscription = FirebaseFirestore.instance.collection('payments').doc(qrId).snapshots().listen((snapshot) {
       if (snapshot.exists) {
         final data = snapshot.data();
-        if (data != null && data['status'] == 'completed') {
-          final amount = (data['amount'] as num).toDouble();
-          final senderName = data['senderName'] ?? 'Someone';
-          final txnId = data['transactionId'] ?? 'CLD-${DateTime.now().millisecondsSinceEpoch}';
-          if (!transactions.any((t) => t.id == txnId)) {
-            _processIncomingPayment(amount, senderName, txnId);
+        if (data != null) {
+          qrStatus = data['status'] ?? 'pending';
+          
+          if (qrStatus == 'completed') {
+            final amount = (data['amount'] as num).toDouble();
+            final senderName = data['senderName'] ?? 'Someone';
+            final txnId = data['transactionId'] ?? 'CLD-${DateTime.now().millisecondsSinceEpoch}';
+            if (!transactions.any((t) => t.id == txnId)) {
+              _processIncomingPayment(amount, senderName, txnId);
+            }
           }
+          notifyListeners();
         }
       }
     });
@@ -185,7 +213,6 @@ class AppState extends ChangeNotifier {
   void _processIncomingPayment(double amount, String senderName, String txnId) {
     if (activeQR == null) return;
     
-    // Receiver Voice Announcement
     _speak("Credited ${amount.toInt()} rupees from $senderName");
 
     transactions.insert(0, WalletTransaction(
@@ -246,7 +273,6 @@ class AppState extends ChangeNotifier {
     final wallet = tempWallets.firstWhere((w) => w.id == walletId);
     final qrId = 'QR-${DateTime.now().millisecondsSinceEpoch}';
     
-    // Set expiry time for Time limit QRs
     DateTime? expiresAt;
     if (limitType == LimitType.time) {
       expiresAt = DateTime.now().add(Duration(minutes: value.round()));
@@ -264,6 +290,7 @@ class AppState extends ChangeNotifier {
       walletId: wallet.id, 
       walletName: wallet.name
     );
+    qrStatus = 'pending';
 
     try {
       await FirebaseFirestore.instance.collection('payments').doc(qrId).set({
@@ -287,71 +314,48 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> notifyScanning(String qrId) async {
+    try {
+      await FirebaseFirestore.instance.collection('payments').doc(qrId).update({'status': 'scanning'});
+    } catch (e) { debugPrint('Update status to scanning failed: $e'); }
+  }
+
   Future<void> scannerPayment(String qrId, double amount) async {
     if (_user == null) return;
     
-    // Check local balance
     if (realAccountBalance < amount) {
-      _playNotificationSound(); // Or a failure sound if you have one
-      transactions.insert(0, WalletTransaction(
-        id: 'FAIL-${DateTime.now().millisecondsSinceEpoch}',
-        type: TransactionType.sent,
-        amount: amount,
-        timestamp: DateTime.now(),
-        status: TransactionStatus.failed,
-        walletId: 'EXTERNAL',
-        walletName: 'External Payment',
-        failureReason: 'Insufficient Balance',
-        otherPartyName: 'Receiver',
-      ));
-      _saveToCache();
-      notifyListeners();
+      _addFailedTransaction('Insufficient Balance', amount);
       return;
     }
 
-    realAccountBalance -= amount;
-    await FirebaseFirestore.instance.collection('users').doc(_user!.uid).update({'balance': realAccountBalance});
-    
     try {
       final docRef = FirebaseFirestore.instance.collection('payments').doc(qrId);
       final doc = await docRef.get();
-      String receiverName = 'Unknown';
-      if (doc.exists) {
-        final data = doc.data();
-        receiverName = data?['receiverName'] ?? 'User';
-        
-        // Check if QR is expired
-        if (data?['expiresAt'] != null) {
-          final expiry = DateTime.parse(data!['expiresAt']);
-          if (DateTime.now().isAfter(expiry)) {
-             transactions.insert(0, WalletTransaction(
-              id: 'FAIL-${DateTime.now().millisecondsSinceEpoch}',
-              type: TransactionType.sent,
-              amount: amount,
-              timestamp: DateTime.now(),
-              status: TransactionStatus.failed,
-              walletId: 'EXTERNAL',
-              walletName: 'Payment to $receiverName',
-              failureReason: 'QR Code Expired',
-              otherPartyName: receiverName,
-            ));
-            _saveToCache();
-            notifyListeners();
-            return;
-          }
-        }
+      if (!doc.exists) return;
 
-        await docRef.update({
-          'status': 'completed', 
-          'amount': amount, 
-          'senderName': userName ?? 'TempWal User',
-          'senderId': _user!.uid, 
-          'transactionId': 'TXN-${DateTime.now().millisecondsSinceEpoch}'
-        });
+      final data = doc.data()!;
+      final receiverName = data['receiverName'] ?? 'User';
+      
+      if (data['expiresAt'] != null) {
+        final expiry = DateTime.parse(data['expiresAt']);
+        if (DateTime.now().isAfter(expiry)) {
+          _addFailedTransaction('QR Code Expired', amount, receiver: receiverName);
+          return;
+        }
       }
 
-      // Sender gets a simple "Tading" sound
-      _playNotificationSound();
+      realAccountBalance -= amount;
+      await FirebaseFirestore.instance.collection('users').doc(_user!.uid).update({'balance': realAccountBalance});
+      
+      await docRef.update({
+        'status': 'completed', 
+        'amount': amount, 
+        'senderName': userName ?? 'User',
+        'senderId': _user!.uid, 
+        'transactionId': 'TXN-${DateTime.now().millisecondsSinceEpoch}'
+      });
+
+      _playTadingSound();
 
       transactions.insert(0, WalletTransaction(
         id: 'TXN-${DateTime.now().millisecondsSinceEpoch}', 
@@ -369,6 +373,22 @@ class AppState extends ChangeNotifier {
     
     _saveToCache();
     currentView = 'dashboard';
+    notifyListeners();
+  }
+
+  void _addFailedTransaction(String reason, double amount, {String? receiver}) {
+    transactions.insert(0, WalletTransaction(
+      id: 'FAIL-${DateTime.now().millisecondsSinceEpoch}',
+      type: TransactionType.sent,
+      amount: amount,
+      timestamp: DateTime.now(),
+      status: TransactionStatus.failed,
+      walletId: 'EXTERNAL',
+      walletName: receiver != null ? 'Payment to $receiver' : 'External Payment',
+      failureReason: reason,
+      otherPartyName: receiver,
+    ));
+    _saveToCache();
     notifyListeners();
   }
 

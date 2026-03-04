@@ -59,6 +59,15 @@ class _EnhancedTransactionTile extends StatelessWidget {
   final bool isDark;
   final VoidCallback onTap;
 
+  String _getInitials(String? name) {
+    if (name == null || name.isEmpty) return 'T';
+    List<String> names = name.trim().split(' ');
+    if (names.length > 1) {
+      return (names[0][0] + names[1][0]).toUpperCase();
+    }
+    return names[0][0].toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isFailed = transaction.status == TransactionStatus.failed;
@@ -71,28 +80,21 @@ class _EnhancedTransactionTile extends StatelessWidget {
     }
 
     Color mainColor;
-    IconData typeIcon;
-
     if (isFailed) {
       mainColor = Colors.red;
-      typeIcon = Icons.error_outline;
     } else {
       switch (transaction.type) {
         case TransactionType.received:
           mainColor = const Color(0xFF10B981);
-          typeIcon = Icons.add_rounded;
           break;
         case TransactionType.sent:
           mainColor = const Color(0xFF2563EB);
-          typeIcon = Icons.remove_rounded;
           break;
         case TransactionType.transferred:
           mainColor = isDark ? const Color(0xFFFACC15) : const Color(0xFF7C3AED);
-          typeIcon = Icons.swap_horiz_rounded;
           break;
         case TransactionType.autoTransferred:
           mainColor = Colors.purple;
-          typeIcon = Icons.auto_awesome_rounded;
           break;
       }
     }
@@ -118,14 +120,18 @@ class _EnhancedTransactionTile extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: mainColor.withOpacity(0.1),
-                    shape: BoxShape.circle,
+                // Profile Avatar with Initials
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: mainColor.withOpacity(0.1),
+                  child: Text(
+                    _getInitials(transaction.otherPartyName),
+                    style: TextStyle(
+                      color: mainColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
-                  child: Icon(typeIcon, color: mainColor, size: 24),
                 ),
                 const SizedBox(width: 16),
                 Expanded(

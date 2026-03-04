@@ -17,7 +17,6 @@ class WalletTransactionsScreen extends StatelessWidget {
         .where((txn) => txn.walletId == wallet.id)
         .toList();
     
-    // Check if there is an active QR for THIS specific wallet
     final activeQR = state.activeQR != null && state.activeQR!.walletId == wallet.id 
         ? state.activeQR 
         : null;
@@ -73,6 +72,21 @@ class _ActiveQRCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Transaction Status Badge Logic
+    String statusText = 'Waiting for payment...';
+    Color statusColor = Colors.grey;
+    IconData statusIcon = Icons.hourglass_empty;
+
+    if (state.qrStatus == 'scanning') {
+      statusText = 'User is confirming...';
+      statusColor = Colors.blue;
+      statusIcon = Icons.qr_code_scanner;
+    } else if (state.qrStatus == 'completed') {
+      statusText = 'Payment Received!';
+      statusColor = Colors.green;
+      statusIcon = Icons.check_circle;
+    }
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -122,6 +136,31 @@ class _ActiveQRCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
+          // --- Real-time Status Badge ---
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: statusColor.withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(statusIcon, size: 14, color: statusColor),
+                const SizedBox(width: 6),
+                Text(
+                  statusText,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -132,6 +171,7 @@ class _ActiveQRCard extends StatelessWidget {
               data: qr.qrValue,
               version: QrVersions.auto,
               size: 140,
+              errorCorrectionLevel: QrErrorCorrectLevel.H,
               eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
               dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
             ),
