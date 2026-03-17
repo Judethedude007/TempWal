@@ -41,6 +41,7 @@ class AppState extends ChangeNotifier {
   ];
   ActiveQRData? activeQR;
   String qrStatus = 'idle';
+  Timer? _expiryTimer;
   
   final List<WalletTransaction> transactions = [];
   String currentView = 'dashboard';
@@ -162,7 +163,7 @@ class AppState extends ChangeNotifier {
       
       final prefs = await SharedPreferences.getInstance();
       localProfilePath = prefs.getString('localProfilePath_$uid');
-
+      
       _saveToCache();
       notifyListeners();
     } catch (e) {
@@ -189,6 +190,7 @@ class AppState extends ChangeNotifier {
       if (activeQrJson != null) {
         activeQR = ActiveQRData.fromJson(jsonDecode(activeQrJson));
         _listenToQR(activeQR!.id);
+        _startExpiryTimer();
       }
 
       final transactionsJson = prefs.getString('transactions');
@@ -338,12 +340,25 @@ class AppState extends ChangeNotifier {
         'expiresAt': expiresAt?.toIso8601String(),
       });
       _listenToQR(qrId);
+      _startExpiryTimer();
     } catch (e) { debugPrint('Firebase upload failed: $e'); }
     
     selectedWalletId = walletId;
     currentView = 'active';
     _saveToCache();
     notifyListeners();
+  }
+
+  void _startExpiryTimer() {
+    _expiryTimer?.cancel();
+    if (activeQR != null && activeQR!.expiresAt != null) {
+      final duration = activeQR!.expiresAt!.difference(DateTime.now());
+      if (duration.isNegative) {
+        qrExpired();
+      } else {
+        _expiryTimer = Timer(duration, () => qrExpired());
+      }
+    }
   }
 
   Future<void> notifyScanning(String qrId) async {
@@ -465,7 +480,11 @@ class AppState extends ChangeNotifier {
   }
 
   void qrExpired() {
+    _expiryTimer?.cancel();
     _qrSubscription?.cancel();
+    if (activeQR != null) {
+      transferWalletToRealAccount(activeQR!.walletId, auto: true);
+    }
     activeQR = null;
     currentView = 'dashboard';
     _saveToCache();
@@ -485,6 +504,7 @@ class AppState extends ChangeNotifier {
   }
 
   void expireQR() {
+    _expiryTimer?.cancel();
     _qrSubscription?.cancel();
     activeQR = null;
     currentView = 'dashboard';
@@ -494,6 +514,7 @@ class AppState extends ChangeNotifier {
   
   @override
   void dispose() {
+    _expiryTimer?.cancel();
     _qrSubscription?.cancel();
     _authSubscription?.cancel();
     _flutterTts.stop();

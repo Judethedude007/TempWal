@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import '../app_state.dart';
 import '../models/models.dart';
 import '../utils/formatters.dart';
@@ -24,6 +28,7 @@ class _ActiveQrScreenState extends State<ActiveQrScreen> {
   bool showSimulator = false;
   double simulatedAmount = 25;
   late final TextEditingController amountController;
+  final ScreenshotController _screenshotController = ScreenshotController();
 
   @override
   void initState() {
@@ -115,11 +120,69 @@ class _ActiveQrScreenState extends State<ActiveQrScreen> {
     });
   }
 
-  Future<void> _copyDetails() async {
-    final payload = 'Payment QR for ${qr.walletName}\nID: ${qr.qrValue}';
-    await Clipboard.setData(ClipboardData(text: payload));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('QR code details copied to clipboard')));
+  Future<void> _shareQrImage() async {
+    try {
+      final image = await _screenshotController.captureFromWidget(
+        Material(
+          color: Colors.white,
+          child: Container(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'TempWal',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF6366F1),
+                  ),
+                ),
+                const Text(
+                  'the only wallet you need',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                _QrWithLogo(qrValue: qr.qrValue),
+                const SizedBox(height: 32),
+                Text(
+                  'Pay into: ${qr.walletName}',
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+                if (qr.limitType == LimitType.amount)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      'Target Limit: ${formatCurrency(qr.amountLimit ?? 0)}',
+                      style: const TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Scan this QR code using TempWal app to pay.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final directory = await getTemporaryDirectory();
+      final imagePath = File('${directory.path}/tempwal_payment_qr.png');
+      await imagePath.writeAsBytes(image);
+
+      await Share.shareXFiles(
+        [XFile(imagePath.path)],
+        text: 'Hey! Scan this QR code to pay me ₹${(qr.amountLimit ?? 0).toInt()} into my ${qr.walletName} on TempWal!',
+      );
+    } catch (e) {
+      debugPrint('Error sharing QR: $e');
+    }
   }
 
   @override
@@ -141,12 +204,16 @@ class _ActiveQrScreenState extends State<ActiveQrScreen> {
           const SizedBox(height: 12),
           Text(
             'Active QR Code',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF111827)),
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : const Color(0xFF111827),
+            ),
           ),
           const SizedBox(height: 16),
           _StatusCard(qr: qr, isDark: isDark, progress: _progress(), remainingLabel: _remainingLabel()),
           const SizedBox(height: 16),
-          _QrPreview(qr: qr, isDark: isDark, onShare: _copyDetails),
+          _QrPreview(qr: qr, isDark: isDark, onShare: _shareQrImage),
           const SizedBox(height: 16),
           _WalletSummary(state: widget.state, wallet: wallet),
           const SizedBox(height: 16),
@@ -176,8 +243,8 @@ class _BackButton extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: TextButton.icon(
         onPressed: () => state.setView('dashboard'),
-        icon: Icon(Icons.arrow_back_ios_new, size: 18, color: state.isDarkMode ? const Color(0xFFFACC15) : const Color(0xFF374151)),
-        label: Text('Back', style: TextStyle(fontWeight: FontWeight.w600, color: state.isDarkMode ? const Color(0xFFFACC15) : const Color(0xFF374151))),
+        icon: Icon(Icons.arrow_back_ios_new, size: 18, color: state.isDarkMode ? const Color(0xFFFACC15) : const Color(0xFF6366F1)),
+        label: Text('Back', style: TextStyle(fontWeight: FontWeight.w600, color: state.isDarkMode ? const Color(0xFFFACC15) : const Color(0xFF6366F1))),
       ),
     );
   }
@@ -195,7 +262,7 @@ class _StatusCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: isDark ? null : const LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFF2563EB)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        gradient: isDark ? null : const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF4F46E5)], begin: Alignment.topLeft, end: Alignment.bottomRight),
         color: isDark ? const Color(0xFF1C1C1F) : null,
         borderRadius: BorderRadius.circular(24),
       ),
@@ -204,7 +271,7 @@ class _StatusCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(qr.limitType == LimitType.time ? Icons.timer_outlined : Icons.attach_money, color: Colors.white),
+              Icon(qr.limitType == LimitType.time ? Icons.timer_outlined : Icons.account_balance_wallet_rounded, color: Colors.white),
               const SizedBox(width: 8),
               Text(qr.limitType == LimitType.time ? 'Time remaining' : 'Amount received', style: const TextStyle(color: Colors.white70)),
               const Spacer(),
@@ -218,8 +285,11 @@ class _StatusCard extends StatelessWidget {
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(color: const Color(0xFFFCD34D), borderRadius: BorderRadius.circular(999)),
-            child: Text(qr.walletName, style: const TextStyle(color: Color(0xFF854D0E), fontWeight: FontWeight.w600)),
+            decoration: BoxDecoration(color: isDark ? const Color(0xFFFACC15) : Colors.white, borderRadius: BorderRadius.circular(999)),
+            child: Text(
+              qr.walletName, 
+              style: TextStyle(color: isDark ? Colors.black : const Color(0xFF4F46E5), fontWeight: FontWeight.bold),
+            ),
           ),
           const SizedBox(height: 16),
           Text(remainingLabel, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
@@ -230,6 +300,40 @@ class _StatusCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _QrWithLogo extends StatelessWidget {
+  const _QrWithLogo({required this.qrValue});
+  final String qrValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        QrImageView(
+          data: qrValue,
+          version: QrVersions.auto,
+          size: 220,
+          errorCorrectionLevel: QrErrorCorrectLevel.H,
+          eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Color(0xFF1E1B4B)),
+          dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Color(0xFF1E1B4B)),
+        ),
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFF6366F1), width: 2),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8)],
+          ),
+          padding: const EdgeInsets.all(4),
+          child: Image.asset('assets/app_icon.png', fit: BoxFit.contain),
+        ),
+      ],
     );
   }
 }
@@ -249,8 +353,8 @@ class _QrPreview extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFEDE9FE), width: 2),
-            boxShadow: const [BoxShadow(color: Color(0x11000000), blurRadius: 16, offset: Offset(0, 8))],
+            border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFE2E8F0), width: 2),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, 10))],
           ),
           child: Column(
             children: [
@@ -259,58 +363,38 @@ class _QrPreview extends StatelessWidget {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: const Color(0xFFF59E0B), borderRadius: BorderRadius.circular(12)),
-                    child: const Icon(Icons.credit_card, color: Colors.white, size: 20),
+                    decoration: BoxDecoration(color: const Color(0xFF6366F1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.qr_code_2_rounded, color: Colors.white, size: 20),
                   ),
                   const SizedBox(width: 10),
                   const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('TempWal', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280))),
-                      Text('Secure Payment', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF7C3AED))),
+                      Text('TempWal', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                      Text('Secure Payment', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF6366F1))),
                     ],
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  QrImageView(
-                    data: qr.qrValue,
-                    version: QrVersions.auto,
-                    size: 220,
-                    errorCorrectionLevel: QrErrorCorrectLevel.H, // HIGH error correction
-                    eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Color(0xFF1E1B4B)),
-                    dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Color(0xFF1E1B4B)),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFFACC15), width: 2),
-                    ),
-                    child: const Text('TempWal', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF7C3AED), fontSize: 10)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text('ID: ${qr.qrValue}', style: const TextStyle(fontFamily: 'RobotoMono', fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4B5563))),
+              const SizedBox(height: 24),
+              _QrWithLogo(qrValue: qr.qrValue),
+              const SizedBox(height: 24),
+              Text('Payment ID: ${qr.qrValue}', style: TextStyle(fontFamily: 'RobotoMono', fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey[400])),
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         ElevatedButton.icon(
           onPressed: onShare,
           style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-            backgroundColor: isDark ? const Color(0xFF2563EB) : const Color(0xFF7C3AED),
-            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            backgroundColor: isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1),
+            foregroundColor: isDark ? Colors.black : Colors.white,
+            elevation: 0,
           ),
-          icon: const Icon(Icons.share_outlined),
-          label: const Text('Share QR Code', style: TextStyle(fontWeight: FontWeight.w600)),
+          icon: const Icon(Icons.share_rounded),
+          label: const Text('Share QR Image', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         ),
       ],
     );
@@ -325,25 +409,30 @@ class _WalletSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = state.isDarkMode;
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        color: isDark ? const Color(0x33FACC15) : const Color(0xFFFFFBEB),
-        border: Border.all(color: isDark ? const Color(0xFFFACC15) : const Color(0xFFFCD34D), width: 2),
+        borderRadius: BorderRadius.circular(24),
+        color: isDark ? const Color(0xFF111827) : Colors.white,
+        border: Border.all(color: isDark ? const Color(0xFF1F2937) : const Color(0xFFE2E8F0)),
       ),
       child: Row(
         children: [
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(wallet?.name ?? 'Wallet', style: TextStyle(fontWeight: FontWeight.w600, color: isDark ? const Color(0xFFE7E5E4) : const Color(0xFF92400E))),
+            Text(wallet?.name ?? 'Wallet', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[500])),
             const SizedBox(height: 4),
-            Text(formatCurrency(wallet?.balance ?? 0), style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: isDark ? const Color(0xFFFACC15) : const Color(0xFF92400E))),
+            Text(formatCurrency(wallet?.balance ?? 0), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1))),
           ]),
           const Spacer(),
           if (wallet != null && wallet!.balance > 0)
             ElevatedButton(
               onPressed: () => state.transferWalletToRealAccount(wallet!.id),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF59E0B), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-              child: const Text('Transfer'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1),
+                foregroundColor: isDark ? Colors.black : Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 0,
+              ),
+              child: const Text('Transfer', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
         ],
       ),
@@ -366,29 +455,48 @@ class _PaymentSimulator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), color: isDark ? const Color(0xFF0F172A) : const Color(0xFFE0F2FE), border: Border.all(color: isDark ? const Color(0xFF0EA5E9) : const Color(0xFF7DD3FC), width: 2)),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: isDark ? const Color(0xFF0F172A).withOpacity(0.5) : const Color(0xFFF8FAFC),
+        border: Border.all(color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0), width: 1),
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(Icons.bolt_outlined, color: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0369A1)),
+          Icon(Icons.bolt_rounded, color: isDark ? const Color(0xFFFACC15) : const Color(0xFF6366F1)),
           const SizedBox(width: 8),
-          Text('Payment Simulator', style: TextStyle(fontWeight: FontWeight.w600, color: isDark ? Colors.white : const Color(0xFF0C4A6E))),
+          Text('Simulator', style: TextStyle(fontWeight: FontWeight.w800, color: isDark ? Colors.white : const Color(0xFF6366F1))),
         ]),
         const SizedBox(height: 12),
         if (!showSimulator)
-          ElevatedButton(onPressed: () => onToggle(true), style: ElevatedButton.styleFrom(backgroundColor: isDark ? const Color(0xFF38BDF8) : const Color(0xFF0369A1), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: const Text('Simulate payment'))
+          ElevatedButton(
+            onPressed: () => onToggle(true), 
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isDark ? Colors.white.withOpacity(0.05) : Colors.white,
+              foregroundColor: isDark ? Colors.white : Colors.black87,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: isDark ? Colors.white10 : const Color(0xFFE2E8F0))),
+              elevation: 0,
+            ),
+            child: const Text('Simulate incoming payment'),
+          )
         else ...[
           TextField(
             controller: controller,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(prefixText: '\$ ', filled: true, fillColor: isDark ? const Color(0xFF1E293B) : Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(16))),
+            decoration: InputDecoration(
+              prefixText: '₹ ', 
+              filled: true, 
+              fillColor: isDark ? const Color(0xFF1E293B) : Colors.white, 
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
             onChanged: (v) { final p = double.tryParse(v); if (p != null) onAmountChange(p); },
           ),
           const SizedBox(height: 12),
           Row(children: [
-            Expanded(child: ElevatedButton(onPressed: onSimulate, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text('Send \$${simulatedAmount}'))),
+            Expanded(child: ElevatedButton(onPressed: onSimulate, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0), child: Text('Receive ₹${simulatedAmount.toInt()}'))),
             const SizedBox(width: 12),
-            ElevatedButton(onPressed: () => onToggle(false), child: const Text('Cancel')),
+            TextButton(onPressed: () => onToggle(false), child: const Text('Cancel')),
           ]),
         ]
       ]),
